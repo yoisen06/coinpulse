@@ -1,52 +1,104 @@
-# Building CoinPulse: A Containerized Crypto Dashboard with Flask, PostgreSQL, and Docker Compose
+# Building CoinPulse: A Containerized Crypto Dashboard with Flask, PostgreSQL and Docker Compose
 
-*Winsen Cristiano Sun · Cloud Services project*
+*One command, three containers, and data that survives restarts.*
 
-## Why I built CoinPulse
+## Why I built it
 
-For my Docker and containerization assignment, I wanted a project that needed more than one container and talked to something outside my own code. A cryptocurrency dashboard fit well: it needs live data from an external API, a database to keep user data, and a web interface. CoinPulse shows the top five cryptocurrencies by market cap in Indonesian Rupiah, with a watchlist that stays saved between sessions.
+For my Cloud Services course I wanted a project that needed more than one container and talked to something outside my own code. A crypto dashboard fit well: it needs live data from an external API, a database to keep user data, and a web interface. CoinPulse shows the top five cryptocurrencies by market cap in Indonesian Rupiah, with a personal watchlist saved in PostgreSQL. It is near-real-time (refreshed about every 60 seconds), not trading data. It also points in the direction I want for my career: cloud and DevOps engineering.
 
-It is a near-real-time monitor, refreshed about every 60 seconds. It is not tick-by-tick trading data, and I say so on the dashboard.
+![CoinPulse dashboard](https://raw.githubusercontent.com/yoisen06/coinpulse/main/docs/screenshots/dashboard-dark.png)
 
 ## Architecture
 
-CoinPulse has three services on one Docker network: a Flask app, a PostgreSQL database, and an optional Adminer interface. The browser only talks to Flask on port 5000. Flask talks to PostgreSQL by the service name `db` and to the CoinGecko API over HTTPS. PostgreSQL is not published to my machine at all, so the only way in is through the app or Adminer.
+![CoinPulse architecture](https://raw.githubusercontent.com/yoisen06/coinpulse/main/docs/screenshots/architecture-diagram.png)
 
-All CoinGecko requests go through the backend. The API key lives in an environment variable on the server, so it never appears in the JavaScript that the browser downloads.
+The browser only talks to Flask on port 5000. Flask calls the CoinGecko API and talks to PostgreSQL over a user-defined network, using the service name `db`. The API key stays on the server and never reaches the browser's JavaScript. PostgreSQL is not published to my machine, and its data lives in a named volume. Adminer, an optional database UI, sits in a Compose profile.
 
 ## The Dockerfile
 
-I used a multi-stage build. The first stage installs the Python dependencies into a virtual environment. The second stage starts from a clean image and copies in only that virtual environment and the application code. Pip's cache and build leftovers stay behind in the first stage, so build tools never reach the final image. The container also runs as a non-root user. My final image size is 228 MB, measured with `docker images`. A single-stage build of this app was actually a little smaller (211 MB), because every dependency is a prebuilt wheel and nothing needs a compiler. The multi-stage pattern pays off when a package has to be compiled: in a test, building `psycopg2` from source gave 633 MB single-stage versus 222 MB multi-stage.
+```dockerfile
+FROM python:3.12-slim-bookworm AS builder
+WORKDIR /build
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-First, I copy `requirements.txt` and install dependencies before copying the source code. Docker caches layers, so changing a Python file no longer reinstalls every package. Second, I used `COPY` rather than `ADD`, because `ADD` also extracts archives and downloads URLs, which I did not need. A `.dockerignore` file keeps `.env`, git history, and cache folders out of the build context.
+FROM python:3.12-slim-bookworm AS runtime
+ENV PATH="/opt/venv/bin:$PATH"
+RUN useradd --create-home --uid 1000 appuser
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY app/ .
+USER appuser
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+```
 
-## The Docker Compose setup
+*(shortened; full file in the repo)*
 
-Compose ties the services together. Three features did most of the work:
+Three decisions matter here. First, a multi-stage build: dependencies are installed in `builder`, and `runtime` copies only the virtual environment and the code. Second, a pinned base tag instead of `latest`. Third, `requirements.txt` is copied before the source, so Docker reuses the cached dependency layer when only code changes. I also used `COPY` instead of `ADD` (which can download URLs and extract archives, neither of which I needed), ran as a non-root user, and used the exec form of `CMD`. The final image is 228 MB.
 
-- **User-defined network and service-name DNS.** Containers on the `coinpulse-net` network find each other by name, so the app connects to `db` instead of an IP address that could change.
-- **Healthchecks with `depends_on`.** The database runs `pg_isready`, and the app waits for `condition: service_healthy`. This is different from just waiting for the container to start, because PostgreSQL needs a few seconds before it accepts connections.
-- **Profiles.** Adminer sits in a `tools` profile, so it only starts when I run `docker compose --profile tools up -d`.
+## docker-compose.yml
 
-## Live market data
+```yaml
+services:
+  app:
+    build: .
+    ports: ["5000:5000"]
+    environment:
+      DB_HOST: db              # service name, not an IP
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16.4-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+  adminer:
+    image: adminer:4.8.1
+    profiles: ["tools"]
+volumes:
+  pgdata:
+    name: coinpulse_pgdata
+```
 
-The backend calls CoinGecko's `/coins/markets` endpoint, sorted by market cap, so the top five update automatically instead of being hardcoded. A second call to `/global` supplies the market summary, such as total market cap and Bitcoin dominance.
+*(excerpt; the real file also sets the network, environment and restart policy)*
 
-Responses are cached in memory for 60 seconds, which keeps me well within the free Demo plan's limits. If CoinGecko fails, the app returns the last good data marked as stale, and the dashboard shows when that data was last updated. After a failure, the backend waits 15 seconds before trying again, so a slow or rate-limited API does not make every refresh hang.
+- **Service-name DNS:** on a custom network the app reaches the database as `db`. Container IPs change, and `localhost` inside the app container points to the app itself.
+- **`service_healthy`:** plain `depends_on` only waits for the container to start. The healthcheck waits until PostgreSQL accepts connections.
+- **Named volume:** the data stays when containers are removed.
+- **Profile:** Adminer only starts with `--profile tools`.
+- **Secrets:** values come from `.env`, which is git-ignored. Only `.env.example` is committed.
 
-## Database persistence
+## Run it locally
 
-The watchlist is stored in PostgreSQL, which keeps its files in a named volume. Running `docker compose down` and then `docker compose up -d` brings back the same watchlist, because the volume outlives the containers. Running `docker compose down -v` deletes the volume and the data with it, so it is the command to be careful with.
+```bash
+git clone https://github.com/yoisen06/coinpulse.git
+cd coinpulse
+cp .env.example .env
+docker compose up -d --build
+```
 
-The app creates its table at startup with `CREATE TABLE IF NOT EXISTS` and retries the connection while the database boots. I chose this over an `init.sql` script because initialization scripts only run when the data directory is empty.
+Open http://localhost:5000. The database becomes healthy first, then the app starts.
 
-## Lessons learned
+## Does the data persist?
 
-1. **Healthchecks beat startup order.** A container that has started is not necessarily a service that is ready.
-2. **Volumes keep their first password.** PostgreSQL stores credentials in the volume on first start, so changing `POSTGRES_PASSWORD` later does not take effect until the volume is reset.
-3. **A cache must be shared.** An in-memory cache only helps if all requests reach the same process, so I run gunicorn with one worker and several threads.
-4. **Plan for the external API failing.** Caching, a stale fallback, and clear error states made the dashboard much more dependable.
+I starred two coins, ran `docker compose down`, then `docker compose up -d`. The watchlist was still there, because it lives in the volume, not in the container. `docker compose down -v` would delete the volume and the data with it.
 
-CoinPulse is small, but building it showed me how images, networks, volumes, and health checks fit together in a real multi-container application.
+![Persistence test](https://raw.githubusercontent.com/yoisen06/coinpulse/main/docs/screenshots/persistence.png)
 
-**Repository:** `<add GitHub URL>` · **Video demo:** `<add YouTube URL>`
+## What I learned
+
+1. **Test from a fresh clone.** It worked on my machine, but my first clean clone returned 503: CoinGecko rejected the placeholder API key from `.env.example`. Now the app ignores empty or placeholder keys.
+2. **Multi-stage is not automatically smaller.** For this app, a single-stage image was 211 MB and multi-stage 228 MB, because every dependency is a prebuilt wheel. When I compiled `psycopg2` from source it was 633 MB versus 222 MB. The pattern pays off when a compiler is needed.
+3. **Healthy is not started.** Waiting for a healthcheck removed the startup race between the app and the database.
+4. **`POSTGRES_PASSWORD` is only read when the volume is first created.** Changing it later needs `docker compose down -v`.
+
+## Links
+
+- GitHub: https://github.com/yoisen06/coinpulse
+- Video demo: <YOUTUBE-URL>
+
+I built this with help from an AI assistant (Claude); the README has the details.
