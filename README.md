@@ -200,14 +200,20 @@ coinpulse/
 
 ## AI Usage Declaration
 
-This project was developed with assistance from Claude (Anthropic), an AI assistant used through an AI coding tool. The AI helped with:
+This project was built together with an AI assistant: Claude (Anthropic), used through an AI coding tool. As a rough estimate, about **50%** of the work was done with AI and the other **50%** by the author.
 
-- designing the architecture and drafting the Flask backend, Dockerfile and Docker Compose configuration;
-- writing the documentation in `docs/` and this README;
-- the visual redesign of the frontend (glass-style interface, light/dark theme switch, animated background chart);
-- preparing the written assignment answers.
+**By the author (about 50%)**
 
-The author ran the application locally, tested the API endpoints and the persistence behavior (screenshots in `docs/screenshots/`), and is responsible for the final submission.
+- The project idea and the base concept: a dashboard of the top 5 cryptocurrencies with a personal watchlist.
+- The setup: preparing the environment, running the project with Docker, testing it, taking the screenshots in `docs/screenshots/`, and creating the GitHub repository.
+
+**With AI assistance (about 50%)**
+
+- Drafting the Flask backend, the Dockerfile and the Docker Compose configuration.
+- The frontend design: the glass-style interface, the light/dark theme switch and the animated background chart.
+- Writing the documentation in `docs/` and this README.
+
+The author ran the application locally, tested the API endpoints and the persistence behavior, and is responsible for the final submission.
 
 ## Disclaimer
 
