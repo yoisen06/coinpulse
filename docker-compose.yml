@@ -1,0 +1,72 @@
+name: coinpulse
+
+services:
+  app:
+    build: .
+    image: coinpulse-app:1.0
+    container_name: coinpulse-app
+    ports:
+      - "5000:5000"
+    environment:
+      COINGECKO_API_KEY: ${COINGECKO_API_KEY:-}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+      DB_HOST: db        # Compose service name, resolved by Docker's DNS
+      DB_PORT: "5432"
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - coinpulse-net
+    restart: unless-stopped
+
+  db:
+    image: postgres:16.4-alpine
+    container_name: coinpulse-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - coinpulse-net
+    restart: unless-stopped
+
+  # Optional database UI. Start with: docker compose --profile tools up -d
+  adminer:
+    image: adminer:4.8.1
+    container_name: coinpulse-adminer
+    profiles: ["tools"]
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - coinpulse-net
+
+networks:
+  coinpulse-net:
+    name: coinpulse-net
+    driver: bridge
+
+volumes:
+  pgdata:
+    name: coinpulse_pgdata
