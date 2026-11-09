@@ -195,8 +195,8 @@ coinpulse/
 ## Project Links
 
 - **GitHub repository:** https://github.com/yoisen06/coinpulse
-- **Article:** _coming soon_
-- **YouTube demo:** _coming soon_
+- **Article:** https://dev.to/yoisen06/building-coinpulse-a-containerized-crypto-dashboard-with-flask-postgresql-and-docker-compose-jcg
+- **YouTube demo:** https://youtu.be/9Mcwv53zMGY
 
 ## AI Usage Declaration
 

@@ -99,6 +99,6 @@ I starred two coins, ran `docker compose down`, then `docker compose up -d`. The
 ## Links
 
 - GitHub: https://github.com/yoisen06/coinpulse
-- Video demo: <YOUTUBE-URL>
+- Video demo: https://youtu.be/9Mcwv53zMGY
 
 I built this with help from an AI assistant (Claude); the README has the details.
