@@ -29,8 +29,10 @@ class MarketError(Exception):
 
 def _headers():
     headers = {"accept": "application/json"}
-    api_key = os.getenv("COINGECKO_API_KEY")
-    if api_key:
+    api_key = os.getenv("COINGECKO_API_KEY", "").strip()
+    # An empty or placeholder value (like the one in .env.example) means "no key":
+    # CoinGecko rejects invalid keys, but serves the public endpoint without one.
+    if api_key and not api_key.startswith("your_"):
         headers["x-cg-demo-api-key"] = api_key
     return headers
 
